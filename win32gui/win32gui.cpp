@@ -10,6 +10,10 @@
 HINSTANCE hInst;                                // 当前实例
 WCHAR szTitle[MAX_LOADSTRING];                  // 标题栏文本
 WCHAR szWindowClass[MAX_LOADSTRING];            // 主窗口类名
+WCHAR szInvalidNumber[MAX_LOADSTRING];
+WCHAR szGotoError[MAX_LOADSTRING];
+
+HWND hwndGoto = NULL;	// Window handle of dialog box
 
 // 此代码模块中包含的函数的前向声明:
 ATOM                MyRegisterClass(HINSTANCE hInstance);
@@ -29,6 +33,8 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
 	// 初始化全局字符串
 	LoadStringW(hInstance, IDS_APP_TITLE, szTitle, MAX_LOADSTRING);
 	LoadStringW(hInstance, IDC_WIN32GUI, szWindowClass, MAX_LOADSTRING);
+	LoadStringW(hInstance, IDS_GOTO_INVALIDNUMBER, szInvalidNumber, MAX_LOADSTRING);
+	LoadStringW(hInstance, IDS_GOTO_ERROR, szGotoError, MAX_LOADSTRING);
 	MyRegisterClass(hInstance);
 
 	// 执行应用程序初始化:
@@ -42,7 +48,9 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
 
 	// 主消息循环:
 	while (GetMessage(&msg, nullptr, 0, 0)) {
-		if (!TranslateAccelerator(msg.hwnd, hAccelTable, &msg)) {
+		if (!TranslateAccelerator(msg.hwnd, hAccelTable, &msg)
+			|| !IsWindow(hwndGoto)
+			|| !IsDialogMessage(hwndGoto, &msg)) {
 			TranslateMessage(&msg);
 			DispatchMessage(&msg);
 		}
@@ -62,8 +70,7 @@ int DisplayConfirmSaveAsMessageBox() {
 
 	if (msgboxID == IDYES) {
 		OutputDebugString(L"Yes Clicked");
-	}
-	else {
+	} else {
 		OutputDebugString(L"No Clicked");
 	}
 
@@ -77,20 +84,54 @@ BOOL CALLBACK DeleteItemProc(HWND hwndDlg,
 							 WPARAM wParam,
 							 LPARAM lParam) {
 	switch (message) {
-	case WM_COMMAND:
-		switch (LOWORD(wParam)) {
-		case IDOK:
-			if (!GetDlgItemText(hwndDlg, ID_ITEMNAME, szItemName, 80))
-				*szItemName = 0;
-			OutputDebugString(szItemName);
+		case WM_COMMAND:
+			switch (LOWORD(wParam)) {
+				case IDOK:
+					if (!GetDlgItemText(hwndDlg, ID_ITEMNAME, szItemName, 80))
+						*szItemName = 0;
+					OutputDebugString(szItemName);
+					break;
+				case IDCANCEL:
+					EndDialog(hwndDlg, wParam);
+					break;
+			}
 			break;
-		case IDCANCEL:
-			EndDialog(hwndDlg, wParam);
-			break;
-		}
-		break;
 	}
 
+	return FALSE;
+}
+
+int iLine;			// Receives line number.
+BOOL fRelative;		// Receives check box status.
+
+BOOL CALLBACK GoToProc(HWND hwndDlg, UINT message, WPARAM wParam, LPARAM lParam) {
+	BOOL fSuccess;
+
+	switch (message) {
+		case WM_INITDIALOG:
+			CheckDlgButton(hwndDlg, ID_ABSREL, fRelative);
+			break;
+		case WM_COMMAND:
+			switch (LOWORD(wParam)) {
+				case IDOK:
+					fRelative = IsDlgButtonChecked(hwndDlg, ID_ABSREL);
+					iLine = GetDlgItemInt(hwndDlg, ID_LINE, &fSuccess, fRelative);
+					if (!fSuccess) {
+						MessageBox(hwndDlg, szInvalidNumber, szGotoError, MB_OK);
+						SendDlgItemMessage(hwndDlg, ID_LINE, EM_SETSEL, 0, -1L);
+					} else {
+						
+					}
+					return TRUE;
+					break;
+				case IDCANCEL:
+					DestroyWindow(hwndDlg);
+					hwndGoto = NULL;
+					return TRUE;
+					break;
+			}
+			break;
+	}
 	return FALSE;
 }
 /* Test UI elements below end */
@@ -158,47 +199,55 @@ BOOL InitInstance(HINSTANCE hInstance, int nCmdShow) {
 //
 LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) {
 	switch (message) {
-	case WM_COMMAND:
-	{
-		int wmId = LOWORD(wParam);
-		// 分析菜单选择:
-		switch (wmId) {
-		case IDM_ABOUT:
-			//DialogBox(hInst, MAKEINTRESOURCE(IDD_ABOUTBOX), hWnd, About);
-			DisplayConfirmSaveAsMessageBox();
-			break;
-		case IDM_EXIT:
-			DestroyWindow(hWnd);
-			break;
-		case IDM_DELETEITEM:
-			if (DialogBox(hInst,
-						  MAKEINTRESOURCE(IDD_DELETEITEM),
-						  hWnd,
-						  (DLGPROC)DeleteItemProc) == IDOK) {
-				OutputDebugString(L"DELETE ITEM YES");
+		case WM_COMMAND:
+		{
+			int wmId = LOWORD(wParam);
+			// 分析菜单选择:
+			switch (wmId) {
+				case IDM_ABOUT:
+					//DialogBox(hInst, MAKEINTRESOURCE(IDD_ABOUTBOX), hWnd, About);
+					DisplayConfirmSaveAsMessageBox();
+					break;
+				case IDM_EXIT:
+					DestroyWindow(hWnd);
+					break;
+				case IDM_DELETEITEM:
+					if (DialogBox(hInst,
+						MAKEINTRESOURCE(IDD_DELETEITEM),
+						hWnd,
+						(DLGPROC)DeleteItemProc) == IDOK) {
+						OutputDebugString(L"DELETE ITEM YES");
+					} else {
+						OutputDebugString(L"DELETE ITEM NO");
+					}
+					break;
+				case IDM_GOTO:
+					if (!IsWindow(hwndGoto)) {
+						hwndGoto = CreateDialog(hInst,
+												MAKEINTRESOURCE(IDD_GOTO),
+												hWnd,
+												(DLGPROC)GoToProc);
+						ShowWindow(hwndGoto, SW_SHOW);
+					}
+					break;
+				default:
+					return DefWindowProc(hWnd, message, wParam, lParam);
 			}
-			else {
-				OutputDebugString(L"DELETE ITEM NO");
-			}
+		}
+		break;
+		case WM_PAINT:
+		{
+			PAINTSTRUCT ps;
+			HDC hdc = BeginPaint(hWnd, &ps);
+			// TODO: 在此处添加使用 hdc 的任何绘图代码...
+			EndPaint(hWnd, &ps);
+		}
+		break;
+		case WM_DESTROY:
+			PostQuitMessage(0);
 			break;
 		default:
 			return DefWindowProc(hWnd, message, wParam, lParam);
-		}
-	}
-	break;
-	case WM_PAINT:
-	{
-		PAINTSTRUCT ps;
-		HDC hdc = BeginPaint(hWnd, &ps);
-		// TODO: 在此处添加使用 hdc 的任何绘图代码...
-		EndPaint(hWnd, &ps);
-	}
-	break;
-	case WM_DESTROY:
-		PostQuitMessage(0);
-		break;
-	default:
-		return DefWindowProc(hWnd, message, wParam, lParam);
 	}
 	return 0;
 }
@@ -207,15 +256,15 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
 INT_PTR CALLBACK About(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam) {
 	UNREFERENCED_PARAMETER(lParam);
 	switch (message) {
-	case WM_INITDIALOG:
-		return (INT_PTR)TRUE;
-
-	case WM_COMMAND:
-		if (LOWORD(wParam) == IDOK || LOWORD(wParam) == IDCANCEL) {
-			EndDialog(hDlg, LOWORD(wParam));
+		case WM_INITDIALOG:
 			return (INT_PTR)TRUE;
-		}
-		break;
+
+		case WM_COMMAND:
+			if (LOWORD(wParam) == IDOK || LOWORD(wParam) == IDCANCEL) {
+				EndDialog(hDlg, LOWORD(wParam));
+				return (INT_PTR)TRUE;
+			}
+			break;
 	}
 	return (INT_PTR)FALSE;
 }
